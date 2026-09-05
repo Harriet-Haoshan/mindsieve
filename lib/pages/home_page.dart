@@ -1,8 +1,7 @@
 import 'package:flutter/material.dart';
-import '../services/usage_service.dart';
-import '../agent/attention_agent.dart';
-import '../services/overlay_service.dart';
 import 'package:url_launcher/url_launcher.dart';
+
+import '../services/foreground_monitor.dart';
 
 class HomePage extends StatefulWidget {
   final VoidCallback? onNavigateToStats;
@@ -14,95 +13,18 @@ class HomePage extends StatefulWidget {
 }
 
 class _HomePageState extends State<HomePage> {
-  final UsageService _usageService = UsageService();
-  final AttentionAgent _agent = AttentionAgent();
-  String _status = '等待检测...';
+  final ForegroundMonitor _monitor = ForegroundMonitor();
   final TextEditingController _searchController = TextEditingController();
 
-  Future<void> _checkForegroundApp() async {
-    setState(() {
-      _status = '检测中...';
-    });
-
-    final mockPackageName = 'com.ss.android.ugc.aweme';
-    final mockAppName = '抖音';
-
-    await _usageService.logAppOpen(mockPackageName, mockAppName);
-    await _usageService.addMockUsage(mockPackageName, mockAppName, 60);
-
-    final (shouldShow, message) = await _agent.shouldIntervene(
-      mockPackageName,
-      mockAppName,
-    );
-
-    if (!mounted) return;
-
-    setState(() {
-      _status = '当前: 抖音 (⚠️ 黑洞App)';
-    });
-
-    if (shouldShow) {
-      final todayUsage = await _usageService.getTodayUsage(mockPackageName);
-      final usageStr = _formatDuration(todayUsage);
-
-      OverlayService.showOverlay(
-        context,
-        appName: mockAppName,
-        todayUsage: usageStr,
-        onContinue: () {
-          OverlayService.dismiss();
-          ScaffoldMessenger.of(
-            context,
-          ).showSnackBar(const SnackBar(content: Text('继续使用')));
-        },
-        onTimer: () {
-          OverlayService.dismiss();
-          ScaffoldMessenger.of(
-            context,
-          ).showSnackBar(const SnackBar(content: Text('5分钟后将再次提醒你！')));
-          Future.delayed(const Duration(minutes: 5), () {
-            OverlayService.showOverlay(
-              context,
-              appName: '抖音',
-              todayUsage: '5分钟前你选择了继续使用',
-              onContinue: () {
-                OverlayService.dismiss();
-                ScaffoldMessenger.of(
-                  context,
-                ).showSnackBar(const SnackBar(content: Text('继续使用')));
-              },
-              onTimer: () {
-                OverlayService.dismiss();
-                ScaffoldMessenger.of(
-                  context,
-                ).showSnackBar(const SnackBar(content: Text('再给你5分钟！')));
-              },
-              onExit: () {
-                OverlayService.dismiss();
-                ScaffoldMessenger.of(
-                  context,
-                ).showSnackBar(const SnackBar(content: Text('已退出，回到桌面')));
-              },
-            );
-          });
-        },
-        onExit: () {
-          OverlayService.dismiss();
-          ScaffoldMessenger.of(
-            context,
-          ).showSnackBar(const SnackBar(content: Text('已退出，回到桌面')));
-        },
-      );
-    }
+  @override
+  void dispose() {
+    _searchController.dispose();
+    super.dispose();
   }
 
-  String _formatDuration(int seconds) {
-    final hours = seconds ~/ 3600;
-    final minutes = (seconds % 3600) ~/ 60;
-    if (hours > 0) {
-      return '$hours小时$minutes分钟';
-    }
-    return '$minutes分钟';
+  /// 跳转系统「使用情况访问」授权页；返回后由生命周期回调自动刷新状态
+  Future<void> _openPermissionSettings() async {
+    await _monitor.openPermissionSettings();
   }
 
   void _onSearchSubmitted() async {
@@ -224,17 +146,59 @@ class _HomePageState extends State<HomePage> {
     return Scaffold(
       backgroundColor: Colors.black,
       body: SafeArea(
-        child: Padding(
+        child: SingleChildScrollView(
           padding: const EdgeInsets.symmetric(horizontal: 24.0),
           child: Column(
             mainAxisAlignment: MainAxisAlignment.center,
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
+              const SizedBox(height: 24),
               const Text(
                 '🧠 MindSieve',
                 style: TextStyle(color: Colors.white54, fontSize: 14),
               ),
-              const SizedBox(height: 40),
+              const SizedBox(height: 24),
+              // 权限引导横幅：未授予「使用情况访问」权限时显示
+              ValueListenableBuilder<bool>(
+                valueListenable: _monitor.hasPermission,
+                builder: (context, hasPermission, _) {
+                  if (hasPermission) return const SizedBox.shrink();
+                  return Container(
+                    margin: const EdgeInsets.only(bottom: 16),
+                    padding: const EdgeInsets.all(14),
+                    decoration: BoxDecoration(
+                      color: Colors.orange.withOpacity(0.1),
+                      borderRadius: BorderRadius.circular(12),
+                      border: Border.all(
+                        color: Colors.orange.withOpacity(0.4),
+                      ),
+                    ),
+                    child: Row(
+                      children: [
+                        const Icon(Icons.security, color: Colors.orange, size: 20),
+                        const SizedBox(width: 10),
+                        const Expanded(
+                          child: Text(
+                            '需要「使用情况访问」权限\n才能自动记录 App 使用时长',
+                            style: TextStyle(
+                              color: Colors.orange,
+                              fontSize: 12,
+                              height: 1.5,
+                            ),
+                          ),
+                        ),
+                        TextButton(
+                          onPressed: _openPermissionSettings,
+                          child: const Text(
+                            '去授权',
+                            style: TextStyle(color: Colors.orange),
+                          ),
+                        ),
+                      ],
+                    ),
+                  );
+                },
+              ),
               Container(
                 decoration: BoxDecoration(
                   color: Colors.white.withOpacity(0.05),
@@ -278,27 +242,43 @@ class _HomePageState extends State<HomePage> {
                   const SizedBox(width: 12),
                   GestureDetector(
                     onTap: () => widget.onNavigateToStats?.call(),
-                    child: _buildChip('今日报告'),
-                  ),
-                  const SizedBox(width: 12),
-                  GestureDetector(
-                    onTap: _checkForegroundApp,
-                    child: _buildChip('检测'),
+                    child: _buildChip('统计复盘'),
                   ),
                 ],
               ),
               const SizedBox(height: 30),
-              Container(
-                padding: const EdgeInsets.all(12),
-                decoration: BoxDecoration(
-                  color: Colors.white.withOpacity(0.05),
-                  borderRadius: BorderRadius.circular(8),
-                ),
-                child: Text(
-                  _status,
-                  style: TextStyle(color: Colors.white54, fontSize: 12),
+              // 自动监控状态：实时显示最近记录 / 授权提示
+              ValueListenableBuilder<String>(
+                valueListenable: _monitor.status,
+                builder: (context, status, _) => Container(
+                  width: double.infinity,
+                  padding: const EdgeInsets.all(12),
+                  decoration: BoxDecoration(
+                    color: Colors.white.withOpacity(0.05),
+                    borderRadius: BorderRadius.circular(8),
+                  ),
+                  child: Row(
+                    children: [
+                      const Icon(
+                        Icons.timer_outlined,
+                        color: Colors.white38,
+                        size: 16,
+                      ),
+                      const SizedBox(width: 8),
+                      Expanded(
+                        child: Text(
+                          status,
+                          style: const TextStyle(
+                            color: Colors.white54,
+                            fontSize: 12,
+                          ),
+                        ),
+                      ),
+                    ],
+                  ),
                 ),
               ),
+              const SizedBox(height: 24),
             ],
           ),
         ),

@@ -1,30 +1,32 @@
 import 'package:flutter/material.dart';
-import '../services/analytics_service.dart';
-import '../services/ai_analysis_service.dart';
-import '../models/app_stats.dart';
-import '../widgets/pie_chart.dart';
-import '../widgets/bar_chart.dart';
 
-class StatsPage extends StatefulWidget {
-  const StatsPage({super.key});
+import '../../models/app_stats.dart';
+import '../../services/ai_analysis_service.dart';
+import '../../services/analytics_service.dart';
+import '../../services/stats_service.dart';
+
+/// 天视图：24 小时 × 各 App 的彩色堆叠色块图
+class DailyStatsView extends StatefulWidget {
+  const DailyStatsView({super.key});
 
   @override
-  State<StatsPage> createState() => _StatsPageState();
+  State<DailyStatsView> createState() => _DailyStatsViewState();
 }
 
-class _StatsPageState extends State<StatsPage> {
+class _DailyStatsViewState extends State<DailyStatsView> {
+  final StatsService _stats = StatsService();
   final AnalyticsService _analytics = AnalyticsService();
   final AiAnalysisService _aiService = AiAnalysisService();
+
   bool _isLoading = true;
-  List<Map<String, dynamic>> _breakdown = [];
-  List<HourlyStats> _hourly = [];
+  List<HourlyAppUsage> _data = [];
   DailySummary? _summary;
 
   // AI 分析状态
-  bool _aiLoading = false; // AI 分析中
-  bool _aiFailed = false; // AI 调用失败（降级显示本地建议）
-  bool _aiMissingKey = false; // API Key 未配置
-  String? _aiResult; // AI 返回的分析文本
+  bool _aiLoading = false;
+  bool _aiFailed = false;
+  bool _aiMissingKey = false;
+  String? _aiResult;
 
   @override
   void initState() {
@@ -35,17 +37,15 @@ class _StatsPageState extends State<StatsPage> {
   Future<void> _loadData() async {
     setState(() => _isLoading = true);
     try {
-      final breakdown = await _analytics.getTodayUsageBreakdown();
-      final hourly = await _analytics.getTodayHourlyDistribution();
+      final data = await _stats.getTodayHourlyAppUsage();
       final summary = await _analytics.getTodaySummary();
       if (!mounted) return;
       setState(() {
-        _breakdown = breakdown;
-        _hourly = hourly;
+        _data = data;
         _summary = summary;
         _isLoading = false;
       });
-      // 数据加载完成后，触发 AI 分析
+      // 数据加载完成后触发 AI 分析
       _requestAiAnalysis();
     } catch (e) {
       if (!mounted) return;
@@ -68,7 +68,7 @@ class _StatsPageState extends State<StatsPage> {
     try {
       final result = await _aiService.analyzeTodayUsage(
         topApps: summary.topApps,
-        hourly: _hourly,
+        hourly: const [],
         totalDuration: summary.totalDuration,
         totalOpens: summary.totalOpens,
       );
@@ -90,44 +90,34 @@ class _StatsPageState extends State<StatsPage> {
 
   @override
   Widget build(BuildContext context) {
-    return Scaffold(
-      backgroundColor: Colors.black,
-      appBar: AppBar(
-        title: const Text('今日专注报告', style: TextStyle(color: Colors.white)),
-        backgroundColor: Colors.black,
-        elevation: 0,
-        actions: [
-          IconButton(
-            icon: const Icon(Icons.refresh, color: Colors.white54),
-            onPressed: _loadData,
+    if (_isLoading) {
+      return const Center(child: CircularProgressIndicator());
+    }
+
+    return RefreshIndicator(
+      onRefresh: _loadData,
+      child: ListView(
+        padding: const EdgeInsets.all(16),
+        children: [
+          _buildSummaryCard(),
+          const SizedBox(height: 20),
+          _buildSectionTitle('24 小时使用分布'),
+          DailyHourChart(
+            data: _data,
+            onHourTap: _showHourDetail,
           ),
+          const SizedBox(height: 8),
+          _buildLegend(),
+          const SizedBox(height: 20),
+          _buildAiSectionHeader(),
+          _buildAiAnalysis(),
+          const SizedBox(height: 30),
         ],
       ),
-      body: _isLoading
-          ? const Center(child: CircularProgressIndicator())
-          : SingleChildScrollView(
-              padding: const EdgeInsets.all(16),
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  _buildSummaryCard(),
-                  const SizedBox(height: 20),
-                  _buildSectionTitle('各 App 使用占比'),
-                  UsagePieChart(data: _breakdown),
-                  const SizedBox(height: 8),
-                  _buildLegend(),
-                  const SizedBox(height: 20),
-                  _buildSectionTitle('24小时使用分布'),
-                  HourlyBarChart(data: _hourly),
-                  const SizedBox(height: 20),
-                  _buildSectionHeader('智能分析'),
-                  _buildAiAnalysis(),
-                  const SizedBox(height: 30),
-                ],
-              ),
-            ),
     );
   }
+
+  // ========== 今日汇总卡 ==========
 
   Widget _buildSummaryCard() {
     final total = _summary?.formattedTotalDuration ?? '0分钟';
@@ -149,7 +139,7 @@ class _StatsPageState extends State<StatsPage> {
       child: Row(
         mainAxisAlignment: MainAxisAlignment.spaceAround,
         children: [
-          _buildStatItem('总时长', total),
+          _buildStatItem('今日总时长', total),
           _buildStatItem('打开次数', '$opens'),
           _buildStatItem('使用最多', topApp),
         ],
@@ -190,27 +180,23 @@ class _StatsPageState extends State<StatsPage> {
     );
   }
 
-  Widget _buildLegend() {
-    if (_breakdown.isEmpty) return const SizedBox.shrink();
+  // ========== 图例 ==========
 
-    final colors = [
-      Colors.blue,
-      Colors.green,
-      Colors.orange,
-      Colors.purple,
-      Colors.red,
-      Colors.teal,
-    ];
+  Widget _buildLegend() {
+    final packages = <String>[];
+    final names = <String, String>{};
+    for (final u in _data) {
+      if (!packages.contains(u.packageName)) {
+        packages.add(u.packageName);
+        names[u.packageName] = u.appName;
+      }
+    }
+    if (packages.isEmpty) return const SizedBox.shrink();
 
     return Wrap(
       spacing: 12,
       runSpacing: 6,
-      children: _breakdown.asMap().entries.map((entry) {
-        final index = entry.key;
-        final item = entry.value;
-        final app = item['app'];
-        final percentage = item['percentage'] as double;
-
+      children: packages.map((pkg) {
         return Row(
           mainAxisSize: MainAxisSize.min,
           children: [
@@ -218,13 +204,13 @@ class _StatsPageState extends State<StatsPage> {
               width: 10,
               height: 10,
               decoration: BoxDecoration(
-                color: colors[index % colors.length],
+                color: appColorFor(pkg, packages),
                 borderRadius: BorderRadius.circular(2),
               ),
             ),
             const SizedBox(width: 4),
             Text(
-              '${app.appName} ${percentage.toStringAsFixed(1)}%',
+              names[pkg] ?? pkg,
               style: const TextStyle(color: Colors.white54, fontSize: 11),
             ),
           ],
@@ -233,15 +219,65 @@ class _StatsPageState extends State<StatsPage> {
     );
   }
 
-  /// 带刷新按钮的区块标题（用于智能分析，可手动重新触发 AI）
-  Widget _buildSectionHeader(String title) {
+  /// 点击某小时列：底部弹出该小时各 App 使用明细
+  void _showHourDetail(int hour, List<HourlyAppUsage> apps) {
+    final packages = apps.map((e) => e.packageName).toList();
+    showModalBottomSheet(
+      context: context,
+      backgroundColor: const Color(0xFF1A1A1A),
+      shape: const RoundedRectangleBorder(
+        borderRadius: BorderRadius.vertical(top: Radius.circular(16)),
+      ),
+      builder: (sheetContext) => Padding(
+        padding: const EdgeInsets.symmetric(vertical: 20, horizontal: 16),
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            Text(
+              '${hour.toString().padLeft(2, '0')}:00 - '
+              '${(hour + 1).toString().padLeft(2, '0')}:00',
+              style: const TextStyle(
+                color: Colors.white,
+                fontSize: 16,
+                fontWeight: FontWeight.bold,
+              ),
+            ),
+            const SizedBox(height: 12),
+            ...apps.map((u) => ListTile(
+                  dense: true,
+                  leading: Container(
+                    width: 12,
+                    height: 12,
+                    decoration: BoxDecoration(
+                      color: appColorFor(u.packageName, packages),
+                      borderRadius: BorderRadius.circular(3),
+                    ),
+                  ),
+                  title: Text(
+                    u.appName,
+                    style: const TextStyle(color: Colors.white70),
+                  ),
+                  trailing: Text(
+                    formatDuration(u.duration),
+                    style: const TextStyle(color: Colors.white54),
+                  ),
+                )),
+          ],
+        ),
+      ),
+    );
+  }
+
+  // ========== 智能分析（沿用原今日报告的 AI 块） ==========
+
+  Widget _buildAiSectionHeader() {
     return Padding(
       padding: const EdgeInsets.only(bottom: 12),
       child: Row(
         children: [
-          Text(
-            title,
-            style: const TextStyle(
+          const Text(
+            '智能分析',
+            style: TextStyle(
               color: Colors.white,
               fontSize: 16,
               fontWeight: FontWeight.bold,
@@ -275,7 +311,7 @@ class _StatsPageState extends State<StatsPage> {
           borderRadius: BorderRadius.circular(12),
         ),
         child: const Text(
-          '暂无数据，点击主页「检测」开始记录',
+          '暂无数据，自动监控会在你使用被监控 App 时记录',
           style: TextStyle(color: Colors.white54),
         ),
       );
@@ -438,6 +474,168 @@ class _StatsPageState extends State<StatsPage> {
           ),
         );
       }).toList(),
+    );
+  }
+}
+
+/// App 固定配色：按出现顺序从调色板取色，保证各视图颜色一致
+const _appPalette = [
+  Colors.blueAccent,
+  Colors.greenAccent,
+  Colors.orange,
+  Colors.purpleAccent,
+  Colors.redAccent,
+  Colors.tealAccent,
+  Colors.pinkAccent,
+  Colors.amber,
+  Colors.cyanAccent,
+  Colors.indigoAccent,
+];
+
+Color appColorFor(String packageName, List<String> packages) {
+  final i = packages.indexOf(packageName);
+  return i < 0 ? Colors.grey : _appPalette[i % _appPalette.length];
+}
+
+/// 24 小时堆叠色块图：每列一个小时，列内按 App 时长比例纵向堆叠
+class DailyHourChart extends StatelessWidget {
+  final List<HourlyAppUsage> data;
+
+  /// 点击某小时列回调（弹出该小时明细）
+  final void Function(int hour, List<HourlyAppUsage> apps)? onHourTap;
+
+  const DailyHourChart({super.key, required this.data, this.onHourTap});
+
+  static const double _chartHeight = 220;
+
+  @override
+  Widget build(BuildContext context) {
+    // 按小时归集：0-23 每小时一个 App 列表
+    final byHour = <int, List<HourlyAppUsage>>{
+      for (var h = 0; h < 24; h++) h: [],
+    };
+    final packages = <String>[];
+    for (final u in data) {
+      byHour[u.hour]!.add(u);
+      if (!packages.contains(u.packageName)) packages.add(u.packageName);
+    }
+
+    int maxHourTotal = 0;
+    for (final list in byHour.values) {
+      final total = list.fold<int>(0, (sum, e) => sum + e.duration);
+      if (total > maxHourTotal) maxHourTotal = total;
+    }
+
+    return Container(
+      padding: const EdgeInsets.only(top: 8),
+      decoration: BoxDecoration(
+        color: Colors.white.withOpacity(0.03),
+        borderRadius: BorderRadius.circular(12),
+      ),
+      child: Column(
+        children: [
+          SizedBox(
+            height: _chartHeight,
+            child: Row(
+              crossAxisAlignment: CrossAxisAlignment.end,
+              children: [
+                for (var h = 0; h < 24; h++)
+                  Expanded(
+                    child: Padding(
+                      padding: const EdgeInsets.symmetric(horizontal: 1),
+                      child: _buildHourColumn(
+                        h,
+                        byHour[h]!,
+                        maxHourTotal,
+                        packages,
+                      ),
+                    ),
+                  ),
+              ],
+            ),
+          ),
+          const SizedBox(height: 6),
+          // 时间轴：每 3 小时标注一次，避免拥挤
+          Row(
+            children: [
+              for (var h = 0; h < 24; h++)
+                Expanded(
+                  child: Center(
+                    child: Text(
+                      h % 3 == 0 ? '${h.toString().padLeft(2, '0')}:00' : '',
+                      style: const TextStyle(
+                        fontSize: 8,
+                        color: Colors.white38,
+                      ),
+                    ),
+                  ),
+                ),
+            ],
+          ),
+          const SizedBox(height: 6),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildHourColumn(
+    int hour,
+    List<HourlyAppUsage> apps,
+    int maxHourTotal,
+    List<String> packages,
+  ) {
+    final total = apps.fold<int>(0, (sum, e) => sum + e.duration);
+    // 列高度按该小时总时长占峰值小时的比例缩放
+    final height = maxHourTotal == 0
+        ? 0.0
+        : _chartHeight * total / maxHourTotal;
+
+    return GestureDetector(
+      onTap: apps.isEmpty ? null : () => onHourTap?.call(hour, apps),
+      child: SizedBox(
+        height: height,
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.stretch,
+          children: apps
+              .map(
+                (u) => Expanded(
+                  flex: u.duration,
+                  child: _buildSegment(u, packages),
+                ),
+              )
+              .toList(),
+        ),
+      ),
+    );
+  }
+
+  /// 单个 App 色块：足够高时在块内标注 App 名称（昵称）
+  Widget _buildSegment(HourlyAppUsage u, List<String> packages) {
+    return LayoutBuilder(
+      builder: (context, constraints) {
+        final showLabel = constraints.maxHeight >= 18;
+        return Container(
+          color: appColorFor(u.packageName, packages),
+          alignment: Alignment.center,
+          child: showLabel
+              ? FittedBox(
+                  fit: BoxFit.scaleDown,
+                  child: Padding(
+                    padding: const EdgeInsets.symmetric(horizontal: 2),
+                    child: Text(
+                      u.appName,
+                      maxLines: 1,
+                      style: const TextStyle(
+                        color: Colors.black87,
+                        fontSize: 9,
+                        fontWeight: FontWeight.bold,
+                      ),
+                    ),
+                  ),
+                )
+              : null,
+        );
+      },
     );
   }
 }

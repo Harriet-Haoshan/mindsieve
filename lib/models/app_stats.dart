@@ -26,6 +26,40 @@ class HourlyStats {
   });
 }
 
+/// 某小时内单个 App 的使用时长（天视图 24 小时堆叠图用）
+class HourlyAppUsage {
+  final int hour;
+  final String packageName;
+  final String appName; // 昵称优先的显示名
+  final int duration; // 秒
+
+  HourlyAppUsage({
+    required this.hour,
+    required this.packageName,
+    required this.appName,
+    required this.duration,
+  });
+}
+
+/// 单个时间桶（天/月/年视图通用）：label 为横轴文案，duration 单位秒
+class TimeBucketStats {
+  final String label;
+  final int duration; // 秒
+
+  TimeBucketStats({required this.label, required this.duration});
+}
+
+/// 秒数格式化：不足 1 分钟按秒显示，避免显示为「0分钟」
+String formatDuration(int seconds) {
+  if (seconds < 60) return '$seconds秒';
+  final hours = seconds ~/ 3600;
+  final minutes = (seconds % 3600) ~/ 60;
+  if (hours > 0) {
+    return '$hours小时$minutes分钟';
+  }
+  return '$minutes分钟';
+}
+
 /// 今日汇总
 class DailySummary {
   final int totalDuration; // 秒
@@ -40,12 +74,5 @@ class DailySummary {
     required this.suggestions,
   });
 
-  String get formattedTotalDuration {
-    final hours = totalDuration ~/ 3600;
-    final minutes = (totalDuration % 3600) ~/ 60;
-    if (hours > 0) {
-      return '$hours小时$minutes分钟';
-    }
-    return '$minutes分钟';
-  }
+  String get formattedTotalDuration => formatDuration(totalDuration);
 }
