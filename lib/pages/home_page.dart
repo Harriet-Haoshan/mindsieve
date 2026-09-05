@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:url_launcher/url_launcher.dart';
 
 import '../services/foreground_monitor.dart';
+import '../widgets/permission_guide_cards.dart';
 
 class HomePage extends StatefulWidget {
   final VoidCallback? onNavigateToStats;
@@ -20,11 +21,6 @@ class _HomePageState extends State<HomePage> {
   void dispose() {
     _searchController.dispose();
     super.dispose();
-  }
-
-  /// 跳转系统「使用情况访问」授权页；返回后由生命周期回调自动刷新状态
-  Future<void> _openPermissionSettings() async {
-    await _monitor.openPermissionSettings();
   }
 
   void _onSearchSubmitted() async {
@@ -158,47 +154,8 @@ class _HomePageState extends State<HomePage> {
                 style: TextStyle(color: Colors.white54, fontSize: 14),
               ),
               const SizedBox(height: 24),
-              // 权限引导横幅：未授予「使用情况访问」权限时显示
-              ValueListenableBuilder<bool>(
-                valueListenable: _monitor.hasPermission,
-                builder: (context, hasPermission, _) {
-                  if (hasPermission) return const SizedBox.shrink();
-                  return Container(
-                    margin: const EdgeInsets.only(bottom: 16),
-                    padding: const EdgeInsets.all(14),
-                    decoration: BoxDecoration(
-                      color: Colors.orange.withOpacity(0.1),
-                      borderRadius: BorderRadius.circular(12),
-                      border: Border.all(
-                        color: Colors.orange.withOpacity(0.4),
-                      ),
-                    ),
-                    child: Row(
-                      children: [
-                        const Icon(Icons.security, color: Colors.orange, size: 20),
-                        const SizedBox(width: 10),
-                        const Expanded(
-                          child: Text(
-                            '需要「使用情况访问」权限\n才能自动记录 App 使用时长',
-                            style: TextStyle(
-                              color: Colors.orange,
-                              fontSize: 12,
-                              height: 1.5,
-                            ),
-                          ),
-                        ),
-                        TextButton(
-                          onPressed: _openPermissionSettings,
-                          child: const Text(
-                            '去授权',
-                            style: TextStyle(color: Colors.orange),
-                          ),
-                        ),
-                      ],
-                    ),
-                  );
-                },
-              ),
+              // 权限引导卡片：未授予「使用情况访问」权限时显示，授权后自动隐藏
+              const PermissionGuideCards(),
               Container(
                 decoration: BoxDecoration(
                   color: Colors.white.withOpacity(0.05),

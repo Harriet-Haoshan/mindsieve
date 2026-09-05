@@ -1,5 +1,7 @@
 import 'package:flutter/material.dart';
 import '../../database/app_dao.dart';
+import '../../services/foreground_monitor.dart';
+import '../../widgets/permission_guide_cards.dart';
 
 class SettingsPage extends StatefulWidget {
   const SettingsPage({super.key});
@@ -10,6 +12,7 @@ class SettingsPage extends StatefulWidget {
 
 class _SettingsPageState extends State<SettingsPage> {
   final AppDao _dao = AppDao();
+  final ForegroundMonitor _monitor = ForegroundMonitor();
 
   /// 各预设 App 的开关状态：packageName -> enabled
   final Map<String, bool> _enabledMap = {};
@@ -19,6 +22,8 @@ class _SettingsPageState extends State<SettingsPage> {
   void initState() {
     super.initState();
     _loadApps();
+    // 进入设置页时重新检查权限状态（从系统设置切回 Tab 也会刷新卡片）
+    _monitor.ensureStarted();
   }
 
   Future<void> _loadApps() async {
@@ -60,6 +65,8 @@ class _SettingsPageState extends State<SettingsPage> {
               child: Column(
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
+                  // 权限引导：使用情况访问（未授权橙色 / 已授权绿色）+ 华为后台活动
+                  const PermissionGuideCards(showGrantedState: true),
                   _buildSectionTitle('监控列表'),
                   ...AppDao.presetApps.map(_buildAppTile),
                   const SizedBox(height: 20),
@@ -83,7 +90,7 @@ class _SettingsPageState extends State<SettingsPage> {
                         const SizedBox(height: 8),
                         Text(
                           '打开 App 时会自动记录使用时长，无需手动检测\n'
-                          '首次使用请在主页授予「使用情况访问」权限\n'
+                          '请按顶部卡片提示授予「使用情况访问」权限\n'
                           '打开开关表示监控该 App，关闭开关后该 App 不再被监测',
                           style: TextStyle(
                             color: Colors.white38,

@@ -3,12 +3,15 @@ package com.example.mindsieve
 import android.app.AppOpsManager
 import android.app.usage.UsageEvents
 import android.app.usage.UsageStatsManager
+import android.content.ComponentName
 import android.content.Context
 import android.content.Intent
 import android.content.pm.ApplicationInfo
 import android.graphics.Bitmap
 import android.graphics.Canvas
 import android.graphics.drawable.Drawable
+import android.net.Uri
+import android.os.Build
 import android.os.Process
 import android.provider.Settings
 import android.util.Base64
@@ -43,6 +46,11 @@ class MainActivity : FlutterActivity() {
                         result.success(queryUsageEvents(start, end))
                     }
                     "getInstalledApps" -> result.success(getInstalledApps())
+                    "isHuaweiDevice" -> result.success(isHuaweiDevice())
+                    "openBatterySettings" -> {
+                        openBatterySettings()
+                        result.success(null)
+                    }
                     else -> result.notImplemented()
                 }
             }
@@ -123,5 +131,49 @@ class MainActivity : FlutterActivity() {
         } catch (e: Exception) {
             null
         }
+    }
+
+    /// 是否华为/鸿蒙设备（鸿蒙手机 manufacturer 同样上报 HUAWEI；
+    /// 纯血鸿蒙 NEXT 不支持 Android 应用，不在考虑范围）
+    private fun isHuaweiDevice(): Boolean {
+        val manufacturer = Build.MANUFACTURER ?: ""
+        return manufacturer.equals("HUAWEI", ignoreCase = true)
+    }
+
+    /// 跳转到本应用的「耗电详情 / 应用启动管理」设置页，引导用户
+    /// 打开「允许后台活动」。EMUI 各版本组件名不统一，先尝试直达
+    /// 华为手机管家的已知页面，失败则回退到公开的应用详情页
+    /// （该页在华为系统上同样包含「耗电详情」「应用启动管理」入口）
+    private fun openBatterySettings() {
+        val huaweiComponents = listOf(
+            // 应用启动管理列表（可设置「允许后台活动」）
+            ComponentName(
+                "com.huawei.systemmanager",
+                "com.huawei.systemmanager.startupmgr.ui.StartupNormalAppListActivity",
+            ),
+            // 受保护应用 / 锁屏清理白名单
+            ComponentName(
+                "com.huawei.systemmanager",
+                "com.huawei.systemmanager.optimize.process.ProtectActivity",
+            ),
+        )
+        for (component in huaweiComponents) {
+            try {
+                val intent = Intent().apply {
+                    this.component = component
+                    addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+                }
+                startActivity(intent)
+                return
+            } catch (_: Exception) {
+                // 该 ROM 版本不存在此 Activity，继续尝试下一个
+            }
+        }
+        // 回退：应用系统详情页（公开 API，所有设备可用）
+        val intent = Intent(
+            Settings.ACTION_APPLICATION_DETAILS_SETTINGS,
+            Uri.fromParts("package", packageName, null),
+        ).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+        startActivity(intent)
     }
 }

@@ -87,6 +87,17 @@ class ForegroundMonitor {
   Future<void> syncEvents() async {
     if (!_running) return;
     try {
+      // 以 AppOps 检查为权限的权威依据：部分系统在权限被撤销后
+      // queryEvents 不抛 SecurityException，而是静默返回空事件列表，
+      // 不能仅凭「没抛异常」判定仍有权限
+      final granted = await checkPermission();
+      if (!granted) {
+        hasPermission.value = false;
+        status.value = '「使用情况访问」权限已被关闭，请重新授权';
+        _running = false;
+        _timer?.cancel();
+        return;
+      }
       final now = DateTime.now().millisecondsSinceEpoch;
       final events =
           await _channel.invokeListMethod<Map<dynamic, dynamic>>(
@@ -175,6 +186,24 @@ class ForegroundMonitor {
       await _channel.invokeMethod('openUsageAccessSettings');
     } on PlatformException catch (e) {
       debugPrint('ForegroundMonitor: 打开授权页失败 ${e.message}');
+    }
+  }
+
+  /// 是否华为/鸿蒙设备（用于显示后台活动权限引导）
+  Future<bool> isHuaweiDevice() async {
+    try {
+      return await _channel.invokeMethod<bool>('isHuaweiDevice') ?? false;
+    } on PlatformException {
+      return false;
+    }
+  }
+
+  /// 跳转本应用的「耗电详情 / 应用启动管理」设置页（华为后台活动引导）
+  Future<void> openBatterySettings() async {
+    try {
+      await _channel.invokeMethod('openBatterySettings');
+    } on PlatformException catch (e) {
+      debugPrint('ForegroundMonitor: 打开耗电详情页失败 ${e.message}');
     }
   }
 
