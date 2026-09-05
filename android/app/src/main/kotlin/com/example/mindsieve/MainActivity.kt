@@ -5,11 +5,17 @@ import android.app.usage.UsageEvents
 import android.app.usage.UsageStatsManager
 import android.content.Context
 import android.content.Intent
+import android.content.pm.ApplicationInfo
+import android.graphics.Bitmap
+import android.graphics.Canvas
+import android.graphics.drawable.Drawable
 import android.os.Process
 import android.provider.Settings
+import android.util.Base64
 import io.flutter.embedding.android.FlutterActivity
 import io.flutter.embedding.engine.FlutterEngine
 import io.flutter.plugin.common.MethodChannel
+import java.io.ByteArrayOutputStream
 
 class MainActivity : FlutterActivity() {
 
@@ -36,6 +42,7 @@ class MainActivity : FlutterActivity() {
                             ?: System.currentTimeMillis()
                         result.success(queryUsageEvents(start, end))
                     }
+                    "getInstalledApps" -> result.success(getInstalledApps())
                     else -> result.notImplemented()
                 }
             }
@@ -74,5 +81,47 @@ class MainActivity : FlutterActivity() {
             }
         }
         return list
+    }
+
+    /// 获取手机中已安装的「可启动第三方应用」列表
+    /// 过滤规则：有桌面图标（LAUNCHER）且非系统预装，排除 MindSieve 自己
+    /// 返回：[{packageName, appName, icon(Base64 PNG 或 null)}]，按名称排序
+    private fun getInstalledApps(): List<Map<String, Any?>> {
+        val pm = packageManager
+        val launcherIntent = Intent(Intent.ACTION_MAIN).addCategory(Intent.CATEGORY_LAUNCHER)
+        val resolveInfos = pm.queryIntentActivities(launcherIntent, 0)
+        val apps = mutableListOf<Map<String, Any?>>()
+
+        for (ri in resolveInfos) {
+            val ai = ri.activityInfo.applicationInfo
+            // FLAG_SYSTEM 标记系统预装应用，全部排除
+            val isSystem = (ai.flags and ApplicationInfo.FLAG_SYSTEM) != 0
+            if (isSystem || ai.packageName == packageName) continue
+
+            apps.add(
+                mapOf(
+                    "packageName" to ai.packageName,
+                    "appName" to ri.loadLabel(pm).toString(),
+                    "icon" to drawableToBase64(ri.loadIcon(pm)),
+                ),
+            )
+        }
+        return apps.sortedBy { (it["appName"] as String).lowercase() }
+    }
+
+    /// 把应用图标 Drawable 渲染成 96x96 PNG 并 Base64 编码（跨通道传输）
+    private fun drawableToBase64(drawable: Drawable): String? {
+        return try {
+            val size = 96
+            val bitmap = Bitmap.createBitmap(size, size, Bitmap.Config.ARGB_8888)
+            val canvas = Canvas(bitmap)
+            drawable.setBounds(0, 0, size, size)
+            drawable.draw(canvas)
+            val stream = ByteArrayOutputStream()
+            bitmap.compress(Bitmap.CompressFormat.PNG, 100, stream)
+            Base64.encodeToString(stream.toByteArray(), Base64.NO_WRAP)
+        } catch (e: Exception) {
+            null
+        }
     }
 }
