@@ -5,6 +5,16 @@ import '../models/app_stats.dart';
 class AppDao {
   static Database? _database;
 
+  /// 预设监控 App（简洁模式：固定列表，用户只需打开/关闭开关）
+  static const List<({String packageName, String appName})> presetApps = [
+    (packageName: 'com.ss.android.ugc.aweme', appName: '抖音'),
+    (packageName: 'com.xingin.xhs', appName: '小红书'),
+    (packageName: 'tv.danmaku.bili', appName: 'B站'),
+    (packageName: 'com.tencent.mm', appName: '微信'),
+    (packageName: 'com.sina.weibo', appName: '微博'),
+    (packageName: 'com.zhiliaoapp.musically', appName: 'TikTok'),
+  ];
+
   Future<Database> get database async {
     if (_database != null) return _database!;
     _database = await _initDatabase();
@@ -15,7 +25,7 @@ class AppDao {
     String path = join(await getDatabasesPath(), 'mindsieve.db');
     return await openDatabase(
       path,
-      version: 3,
+      version: 4,
       onCreate: (db, version) async {
         await db.execute(
           'CREATE TABLE notes(id INTEGER PRIMARY KEY, content TEXT, timestamp INTEGER)',
@@ -39,6 +49,8 @@ class AppDao {
             key TEXT PRIMARY KEY,
             value TEXT
           )''');
+        // 新装用户：写入预设监控 App（默认全部开启）
+        await _seedPresetApps(db);
       },
       onUpgrade: (db, oldVersion, newVersion) async {
         if (oldVersion < 2) {
@@ -61,8 +73,38 @@ class AppDao {
               value TEXT
             )''');
         }
+        if (oldVersion < 4) {
+          // v4：恢复简洁模式——固定预设 App 列表 + 开关。
+          // 补齐缺失的预设 App（保留已有开关状态），移除手动添加/测试
+          // 产生的多余行，并清空昵称（简洁模式不再提供昵称编辑）
+          await _seedPresetApps(db);
+          final presetPackages = presetApps.map((a) => a.packageName).toList();
+          final placeholders = List.filled(
+            presetPackages.length,
+            '?',
+          ).join(',');
+          await db.delete(
+            'controlled_apps',
+            where: 'package_name NOT IN ($placeholders)',
+            whereArgs: presetPackages,
+          );
+          await db.rawUpdate('UPDATE controlled_apps SET nickname = NULL');
+        }
       },
     );
+  }
+
+  /// 写入预设监控 App；已存在的行跳过（保留用户的开关状态）
+  static Future<void> _seedPresetApps(Database db) async {
+    final now = DateTime.now().millisecondsSinceEpoch;
+    for (final app in presetApps) {
+      await db.insert('controlled_apps', {
+        'package_name': app.packageName,
+        'app_name': app.appName,
+        'enabled': 1,
+        'added_time': now,
+      }, conflictAlgorithm: ConflictAlgorithm.ignore);
+    }
   }
 
   // ========== 使用记录 ==========
@@ -287,50 +329,12 @@ class AppDao {
     return result.isEmpty ? null : result.first;
   }
 
-  Future<void> addControlledApp(String packageName, String appName) async {
-    final db = await database;
-    await db.insert('controlled_apps', {
-      'package_name': packageName,
-      'app_name': appName,
-      'enabled': 1,
-      'added_time': DateTime.now().millisecondsSinceEpoch,
-    }, conflictAlgorithm: ConflictAlgorithm.replace);
-  }
-
-  Future<void> removeControlledApp(String packageName) async {
-    final db = await database;
-    await db.delete(
-      'controlled_apps',
-      where: 'package_name = ?',
-      whereArgs: [packageName],
-    );
-  }
-
-  Future<void> toggleControlledApp(String packageName) async {
-    final db = await database;
-    final result = await db.query(
-      'controlled_apps',
-      columns: ['enabled'],
-      where: 'package_name = ?',
-      whereArgs: [packageName],
-    );
-    if (result.isNotEmpty) {
-      final current = result.first['enabled'] as int;
-      await db.update(
-        'controlled_apps',
-        {'enabled': current == 1 ? 0 : 1},
-        where: 'package_name = ?',
-        whereArgs: [packageName],
-      );
-    }
-  }
-
-  /// 修改 App 昵称（空值表示清除昵称，显示回退到系统名称）
-  Future<void> setNickname(String packageName, String? nickname) async {
+  /// 设置预设 App 的监控开关（简洁模式下唯一的写操作）
+  Future<void> setAppEnabled(String packageName, bool enabled) async {
     final db = await database;
     await db.update(
       'controlled_apps',
-      {'nickname': nickname},
+      {'enabled': enabled ? 1 : 0},
       where: 'package_name = ?',
       whereArgs: [packageName],
     );
