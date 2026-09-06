@@ -46,6 +46,9 @@ class ForegroundMonitor {
   /// 使用情况访问权限状态，页面监听它显示授权引导横幅
   final ValueNotifier<bool> hasPermission = ValueNotifier(false);
 
+  /// 是否已忽略电池优化（允许后台运行，息屏不被系统清理）
+  final ValueNotifier<bool> ignoreBatteryOptimization = ValueNotifier(false);
+
   /// 监控状态文案，主页直接展示（授权状态 / 最近记录 / 异常信息）
   final ValueNotifier<String> status = ValueNotifier('监控未启动');
 
@@ -205,6 +208,33 @@ class ForegroundMonitor {
     } on PlatformException catch (e) {
       debugPrint('ForegroundMonitor: 打开耗电详情页失败 ${e.message}');
     }
+  }
+
+  /// 检查是否已忽略电池优化
+  Future<bool> checkIgnoreBatteryOptimization() async {
+    try {
+      return await _channel.invokeMethod<bool>(
+            'hasIgnoreBatteryOptimization',
+          ) ??
+          false;
+    } on PlatformException {
+      return false;
+    }
+  }
+
+  /// 跳转「忽略电池优化」系统设置页
+  Future<void> openIgnoreBatteryOptimizationSettings() async {
+    try {
+      await _channel.invokeMethod('openIgnoreBatteryOptimizationSettings');
+    } on PlatformException catch (e) {
+      debugPrint('ForegroundMonitor: 打开电池优化设置失败 ${e.message}');
+    }
+  }
+
+  /// 统一刷新所有权限状态（供页面 initState / 从系统设置返回时调用）
+  Future<void> refreshPermissions() async {
+    hasPermission.value = await checkPermission();
+    ignoreBatteryOptimization.value = await checkIgnoreBatteryOptimization();
   }
 
   String _format(int seconds) {

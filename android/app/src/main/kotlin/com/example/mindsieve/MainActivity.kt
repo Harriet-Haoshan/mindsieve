@@ -12,6 +12,7 @@ import android.graphics.Canvas
 import android.graphics.drawable.Drawable
 import android.net.Uri
 import android.os.Build
+import android.os.PowerManager
 import android.os.Process
 import android.provider.Settings
 import android.util.Base64
@@ -49,6 +50,11 @@ class MainActivity : FlutterActivity() {
                     "isHuaweiDevice" -> result.success(isHuaweiDevice())
                     "openBatterySettings" -> {
                         openBatterySettings()
+                        result.success(null)
+                    }
+                    "hasIgnoreBatteryOptimization" -> result.success(hasIgnoreBatteryOptimization())
+                    "openIgnoreBatteryOptimizationSettings" -> {
+                        startActivity(Intent(Settings.ACTION_IGNORE_BATTERY_OPTIMIZATION_SETTINGS))
                         result.success(null)
                     }
                     else -> result.notImplemented()
@@ -175,5 +181,11 @@ class MainActivity : FlutterActivity() {
             Uri.fromParts("package", packageName, null),
         ).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
         startActivity(intent)
+    }
+
+    /// 是否已忽略电池优化（即系统不会主动清理本应用后台进程）
+    private fun hasIgnoreBatteryOptimization(): Boolean {
+        val pm = getSystemService(Context.POWER_SERVICE) as PowerManager
+        return pm.isIgnoringBatteryOptimizations(packageName)
     }
 }

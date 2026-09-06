@@ -2,7 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:url_launcher/url_launcher.dart';
 
 import '../services/foreground_monitor.dart';
-import '../widgets/permission_guide_cards.dart';
+import '../widgets/permission_summary_card.dart';
 
 class HomePage extends StatefulWidget {
   final VoidCallback? onNavigateToStats;
@@ -154,8 +154,8 @@ class _HomePageState extends State<HomePage> {
                 style: TextStyle(color: Colors.white54, fontSize: 14),
               ),
               const SizedBox(height: 24),
-              // 权限引导卡片：未授予「使用情况访问」权限时显示，授权后自动隐藏
-              const PermissionGuideCards(),
+              // 权限状态汇总卡片：未全部开启时显示，全部开启后自动隐藏
+              const PermissionSummaryCard(),
               Container(
                 decoration: BoxDecoration(
                   color: Colors.white.withOpacity(0.05),

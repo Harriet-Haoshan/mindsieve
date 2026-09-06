@@ -28,6 +28,11 @@ android {
         targetSdk = flutter.targetSdkVersion
         versionCode = flutter.versionCode
         versionName = flutter.versionName
+        // 打包全架构 so（华为等 arm64 手机兼容必需）。
+        // 注意：此配置与 --split-per-abi（splits）互斥，打 fat APK 时不要再加 split 参数。
+        ndk {
+            abiFilters += listOf("armeabi-v7a", "arm64-v8a", "x86", "x86_64")
+        }
     }
 
     buildTypes {
